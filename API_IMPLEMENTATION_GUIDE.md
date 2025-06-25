@@ -711,7 +711,12 @@ photo_type: "onboarding"
 ```
 
 ### 2. Get Product Details
-**GET** `/products/{id}`
+**GET** `/products/{product_id}`
+
+**Request:**
+```
+GET /api/products/prod_200
+```
 
 **Response (200 OK):**
 ```json

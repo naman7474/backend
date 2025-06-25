@@ -3,7 +3,8 @@ const supabase = require('../config/supabase');
 const {
   performComprehensiveAnalysis,
   matchProductsWithAI,
-  selectFinalProductsWithAI
+  selectFinalProductsWithAI,
+  saveAIAnalysisResults
 } = require('../services/ai-analysis.service');
 
 // In-memory storage for analysis status (in production, use Redis)
@@ -71,9 +72,9 @@ const triggerAnalysis = async (req, res) => {
       steps_pending: [
         'photo_analysis',
         'profile_analysis',
-        'skin_concern_mapping',
-        'ingredient_matching',
-        'product_matching',
+        'saving_analysis',
+        'rule_based_filtering',
+        'ai_product_selection',
         'routine_optimization'
       ],
       started_at: new Date().toISOString()
@@ -115,16 +116,31 @@ const performFullAnalysisAsync = async (analysisId, userId, profile, photoAnalys
       profile
     );
 
-    // Step 2: Product Matching
-    updateAnalysisStatus(analysisId, 'product_matching', 40);
+    // Step 1.5: Save AI Analysis Results
+    updateAnalysisStatus(analysisId, 'saving_analysis', 25);
+    try {
+      await saveAIAnalysisResults(
+        userId,
+        photoAnalysisData ? photoAnalysisData.id : null,
+        photoAnalysisData ? photoAnalysisData.analysis_data : null,
+        comprehensiveAnalysis
+      );
+      console.log('✅ AI analysis results saved successfully');
+    } catch (saveError) {
+      console.error('❌ Failed to save AI analysis results, but continuing with process:', saveError);
+      // Don't throw error - continue with the analysis process
+    }
+
+    // Step 2: Rule-based Product Filtering + AI Matching
+    updateAnalysisStatus(analysisId, 'rule_based_filtering', 45);
     
     const matchedProducts = await matchProductsWithAI(
       comprehensiveAnalysis,
       profile
     );
 
-    // Step 3: Final Product Selection
-    updateAnalysisStatus(analysisId, 'routine_optimization', 70);
+    // Step 3: AI Product Selection
+    updateAnalysisStatus(analysisId, 'ai_product_selection', 65);
     
     const finalRecommendations = await selectFinalProductsWithAI(
       matchedProducts,
@@ -132,8 +148,8 @@ const performFullAnalysisAsync = async (analysisId, userId, profile, photoAnalys
       profile
     );
 
-    // Step 4: Save Recommendations
-    updateAnalysisStatus(analysisId, 'saving_results', 90);
+    // Step 4: Routine Optimization & Save Recommendations
+    updateAnalysisStatus(analysisId, 'routine_optimization', 85);
     
     await saveRecommendations(userId, analysisId, finalRecommendations, comprehensiveAnalysis, photoAnalysisData);
 
@@ -187,8 +203,33 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
     // Prepare recommendation records
     const recommendationRecords = [];
 
+    // Verify all product IDs exist in database
+    const allProductIds = [
+      ...recommendations.morningRoutine.map(p => p.productId),
+      ...recommendations.eveningRoutine.map(p => p.productId)
+    ];
+    
+    const { data: existingProducts, error: productCheckError } = await supabase
+      .from('products')
+      .select('product_id')
+      .in('product_id', allProductIds);
+    
+    if (productCheckError) {
+      console.error('Product verification error:', productCheckError);
+    }
+    
+    const validProductIds = new Set(existingProducts?.map(p => p.product_id) || []);
+    console.log('Valid product IDs found:', validProductIds);
+    console.log('Requested product IDs:', allProductIds);
+
     // Morning routine
     recommendations.morningRoutine.forEach((product, index) => {
+      // Skip products with invalid IDs
+      if (!validProductIds.has(product.productId)) {
+        console.warn(`Skipping invalid product ID: ${product.productId}`);
+        return;
+      }
+      
       recommendationRecords.push({
         user_id: userId,
         analysis_id: photoAnalysis?.id || null,
@@ -230,6 +271,12 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
 
     // Evening routine
     recommendations.eveningRoutine.forEach((product, index) => {
+      // Skip products with invalid IDs
+      if (!validProductIds.has(product.productId)) {
+        console.warn(`Skipping invalid product ID: ${product.productId}`);
+        return;
+      }
+      
       recommendationRecords.push({
         user_id: userId,
         analysis_id: photoAnalysis?.id || null,

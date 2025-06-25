@@ -111,7 +111,7 @@ const productController = {
       const { data: product, error } = await supabase
         .from('products')
         .select('*')
-        .eq('id', id)
+        .eq('product_id', id)
         .single();
 
       if (error) {

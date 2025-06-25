@@ -37,7 +37,10 @@ const getRecommendations = async (req, res) => {
         success: false,
         error: {
           code: 'NOT_FOUND',
-          message: 'No recommendations found. Please complete analysis first.'
+          message: 'No recommendations found. Please complete analysis first.',
+          details: {
+            message: 'Try triggering a new analysis to generate recommendations with valid products.'
+          }
         }
       });
     }
@@ -65,7 +68,7 @@ const getRecommendations = async (req, res) => {
       return {
         ...rec,
         product_data: {
-          product_id: product.product_id,
+          product_id: rec.product_id || product.product_id, // Ensure product_id is always included
           product_name: rec.product_name || product.product_name,
           brand: rec.brand_name || product.brand_name,
           product_type: rec.category,
