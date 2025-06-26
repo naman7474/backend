@@ -16,6 +16,8 @@ const triggerAnalysis = async (req, res) => {
     const userId = req.user.id;
     const { session_id, include_photo_analysis = true, analysis_depth = 'comprehensive' } = req.body;
 
+    console.log('🚀 Starting analysis for user:', userId);
+
     // Check if user has completed profile
     const { data: profile, error: profileError } = await supabase
       .from('beauty_profiles')
@@ -24,6 +26,7 @@ const triggerAnalysis = async (req, res) => {
       .single();
 
     if (profileError || !profile) {
+      console.error('❌ Profile error:', profileError);
       return res.status(400).json({
         success: false,
         error: {
@@ -32,6 +35,12 @@ const triggerAnalysis = async (req, res) => {
         }
       });
     }
+
+    console.log('✅ Profile found:', {
+      skin_type: profile.skin_type,
+      concerns: profile.primary_skin_concerns,
+      allergies: profile.known_allergies
+    });
 
     // Check if user has photo analysis
     let photoAnalysis = null;
@@ -47,21 +56,15 @@ const triggerAnalysis = async (req, res) => {
 
       if (!analysisError && latestAnalysis) {
         photoAnalysis = latestAnalysis;
+        console.log('✅ Photo analysis found:', latestAnalysis.id);
+      } else {
+        console.log('⚠️ No photo analysis found:', analysisError?.message);
       }
-    }
-
-    if (include_photo_analysis && !photoAnalysis) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Please upload and process a photo first'
-        }
-      });
     }
 
     // Generate analysis ID
     const analysisId = uuidv4();
+    console.log('📋 Generated analysis ID:', analysisId);
 
     // Initialize analysis status
     analysisStatus[analysisId] = {
@@ -93,7 +96,7 @@ const triggerAnalysis = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Trigger analysis error:', error);
+    console.error('❌ Trigger analysis error:', error);
     res.status(500).json({
       success: false,
       error: {
@@ -106,9 +109,12 @@ const triggerAnalysis = async (req, res) => {
 
 // Perform full analysis asynchronously
 const performFullAnalysisAsync = async (analysisId, userId, profile, photoAnalysisData) => {
+  console.log('🔄 Starting async analysis for:', analysisId);
+  
   try {
     // Step 1: Comprehensive AI Analysis
     updateAnalysisStatus(analysisId, 'profile_analysis', 15);
+    console.log('📊 Step 1: Performing comprehensive analysis...');
     
     const comprehensiveAnalysis = await performComprehensiveAnalysis(
       userId,
@@ -116,31 +122,50 @@ const performFullAnalysisAsync = async (analysisId, userId, profile, photoAnalys
       profile
     );
 
+    console.log('✅ Comprehensive analysis complete:', {
+      hasData: !!comprehensiveAnalysis,
+      keys: Object.keys(comprehensiveAnalysis || {})
+    });
+
     // Step 1.5: Save AI Analysis Results
     updateAnalysisStatus(analysisId, 'saving_analysis', 25);
+    console.log('💾 Step 1.5: Saving AI analysis results...');
+    
     try {
-      await saveAIAnalysisResults(
+      const savedResult = await saveAIAnalysisResults(
         userId,
         photoAnalysisData ? photoAnalysisData.id : null,
         photoAnalysisData ? photoAnalysisData.analysis_data : null,
         comprehensiveAnalysis
       );
-      console.log('✅ AI analysis results saved successfully');
+      console.log('✅ AI analysis results saved successfully with ID:', savedResult?.id);
     } catch (saveError) {
-      console.error('❌ Failed to save AI analysis results, but continuing with process:', saveError);
-      // Don't throw error - continue with the analysis process
+      console.error('❌ Failed to save AI analysis results:', saveError);
+      console.error('Save error details:', {
+        message: saveError.message,
+        code: saveError.code,
+        details: saveError.details
+      });
+      // Don't throw - continue with the analysis
     }
 
     // Step 2: Rule-based Product Filtering + AI Matching
     updateAnalysisStatus(analysisId, 'rule_based_filtering', 45);
+    console.log('🔍 Step 2: Matching products with AI...');
     
     const matchedProducts = await matchProductsWithAI(
       comprehensiveAnalysis,
       profile
     );
 
+    console.log('✅ Products matched:', {
+      categories: Object.keys(matchedProducts),
+      totalProducts: Object.values(matchedProducts).reduce((sum, arr) => sum + arr.length, 0)
+    });
+
     // Step 3: AI Product Selection
     updateAnalysisStatus(analysisId, 'ai_product_selection', 65);
+    console.log('🤖 Step 3: AI selecting final products...');
     
     const finalRecommendations = await selectFinalProductsWithAI(
       matchedProducts,
@@ -148,8 +173,15 @@ const performFullAnalysisAsync = async (analysisId, userId, profile, photoAnalys
       profile
     );
 
+    console.log('✅ Final recommendations:', {
+      morningCount: finalRecommendations.morningRoutine?.length || 0,
+      eveningCount: finalRecommendations.eveningRoutine?.length || 0,
+      sampleMorningId: finalRecommendations.morningRoutine?.[0]?.productId
+    });
+
     // Step 4: Routine Optimization & Save Recommendations
     updateAnalysisStatus(analysisId, 'routine_optimization', 85);
+    console.log('💾 Step 4: Saving recommendations...');
     
     await saveRecommendations(userId, analysisId, finalRecommendations, comprehensiveAnalysis, photoAnalysisData);
 
@@ -162,8 +194,12 @@ const performFullAnalysisAsync = async (analysisId, userId, profile, photoAnalys
       completed_at: new Date().toISOString()
     };
 
+    console.log('🎉 Analysis complete for:', analysisId);
+
   } catch (error) {
-    console.error('Analysis error:', error);
+    console.error('❌ Analysis error:', error);
+    console.error('Error stack:', error.stack);
+    
     analysisStatus[analysisId] = {
       ...analysisStatus[analysisId],
       status: 'failed',
@@ -189,10 +225,14 @@ const updateAnalysisStatus = (analysisId, step, progress) => {
     steps_completed: currentSteps,
     steps_pending: analysisStatus[analysisId].steps_pending.filter(s => s !== step)
   };
+
+  console.log(`📊 Status update - ${step}: ${progress}%`);
 };
 
 // Save recommendations to database
 const saveRecommendations = async (userId, analysisId, recommendations, aiAnalysis, photoAnalysis) => {
+  console.log('💾 Saving recommendations for user:', userId);
+  
   try {
     // Deactivate old recommendations
     await supabase
@@ -209,26 +249,30 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
       ...recommendations.eveningRoutine.map(p => p.productId)
     ];
     
+    console.log('🔍 Verifying product IDs:', allProductIds);
+    
     const { data: existingProducts, error: productCheckError } = await supabase
       .from('products')
-      .select('product_id')
+      .select('product_id, product_name, brand_name')
       .in('product_id', allProductIds);
     
     if (productCheckError) {
-      console.error('Product verification error:', productCheckError);
+      console.error('❌ Product verification error:', productCheckError);
     }
     
     const validProductIds = new Set(existingProducts?.map(p => p.product_id) || []);
-    console.log('Valid product IDs found:', validProductIds);
-    console.log('Requested product IDs:', allProductIds);
+    console.log('✅ Valid product IDs found:', validProductIds.size);
+    console.log('📋 Sample valid IDs:', Array.from(validProductIds).slice(0, 3));
 
     // Morning routine
     recommendations.morningRoutine.forEach((product, index) => {
       // Skip products with invalid IDs
       if (!validProductIds.has(product.productId)) {
-        console.warn(`Skipping invalid product ID: ${product.productId}`);
+        console.warn(`⚠️ Skipping invalid morning product ID: ${product.productId}`);
         return;
       }
+      
+      console.log(`✅ Adding morning product: ${product.productId} - ${product.productName}`);
       
       recommendationRecords.push({
         user_id: userId,
@@ -259,10 +303,10 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
           results: product.expectedResults,
           timeline: product.timeToSeeResults
         },
-        match_score: 95 - (index * 2), // Score based on order
+        match_score: 95 - (index * 2),
         ai_match_score: 0.9 - (index * 0.02),
         personalization_factors: {
-          targetsConcerns: aiAnalysis.treatmentPlan.priorities.map(p => p.concern),
+          targetsConcerns: aiAnalysis.treatmentPlan?.priorities?.map(p => p.concern) || [],
           matchesProfile: true
         },
         is_active: true
@@ -273,9 +317,11 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
     recommendations.eveningRoutine.forEach((product, index) => {
       // Skip products with invalid IDs
       if (!validProductIds.has(product.productId)) {
-        console.warn(`Skipping invalid product ID: ${product.productId}`);
+        console.warn(`⚠️ Skipping invalid evening product ID: ${product.productId}`);
         return;
       }
+      
+      console.log(`✅ Adding evening product: ${product.productId} - ${product.productName}`);
       
       recommendationRecords.push({
         user_id: userId,
@@ -309,7 +355,7 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
         match_score: 93 - (index * 2),
         ai_match_score: 0.88 - (index * 0.02),
         personalization_factors: {
-          targetsConcerns: aiAnalysis.treatmentPlan.priorities.map(p => p.concern),
+          targetsConcerns: aiAnalysis.treatmentPlan?.priorities?.map(p => p.concern) || [],
           matchesProfile: true
         },
         is_active: true
@@ -317,13 +363,23 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
     });
 
     // Save all recommendations
-    console.log('💾 Saving recommendations for userId:', userId);
+    console.log(`💾 Saving ${recommendationRecords.length} recommendations to database...`);
+    
+    if (recommendationRecords.length === 0) {
+      console.error('❌ No valid recommendations to save!');
+      throw new Error('No valid product recommendations could be generated');
+    }
     
     const { error } = await supabase
       .from('product_recommendations')
       .insert(recommendationRecords);
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Database insert error:', error);
+      throw error;
+    }
+
+    console.log('✅ Recommendations saved successfully');
 
     // Update beauty profile to mark recommendations generated
     await supabase
@@ -335,7 +391,7 @@ const saveRecommendations = async (userId, analysisId, recommendations, aiAnalys
       .eq('user_id', userId);
 
   } catch (error) {
-    console.error('Save recommendations error:', error);
+    console.error('❌ Save recommendations error:', error);
     throw error;
   }
 };
@@ -425,4 +481,4 @@ module.exports = {
   triggerAnalysis,
   getAnalysisStatus,
   getAnalysis
-}; 
+};

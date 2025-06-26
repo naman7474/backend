@@ -14,8 +14,12 @@ const models = {
     model: process.env.AI_PHOTO_ANALYSIS_MODEL || "gemini-2.0-flash" 
   }),
   recommendation: genAI.getGenerativeModel({ 
-    model: process.env.AI_RECOMMENDATION_MODEL || "gemini-2.5-flash-preview-05-20" 
+    model: process.env.AI_RECOMMENDATION_MODEL || "gemini-2.5-flash" 
+  }),
+  // ADD THIS: comprehensive model was missing!
+  comprehensive: genAI.getGenerativeModel({ 
+    model: process.env.AI_RECOMMENDATION_MODEL || "gemini-2.5-flash" 
   })
 };
 
-module.exports = { genAI, models }; 
+module.exports = { genAI, models };
