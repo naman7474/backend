@@ -250,7 +250,7 @@ photo_type: "onboarding"
   "data": {
     "session_id": "session_uuid_12345",
     "photo_id": "photo_uuid_67890",
-    "processing_status": "queued",
+    "processing_status": "pending",
     "estimated_time": 30
   }
 }

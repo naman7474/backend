@@ -12,6 +12,7 @@ const recommendationRoutes = require('./routes/recommendation.routes');
 const progressRoutes = require('./routes/progress.routes');
 const influencerRoutes = require('./routes/influencer.routes');
 const productRoutes = require('./routes/product.routes');
+const invitationRoutes = require('./routes/invitation.routes');
 
 const app = express();
 
@@ -84,6 +85,7 @@ app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/influencers', influencerRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/invitations', invitationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -2,6 +2,7 @@ const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const supabase = require('../config/supabase');
 const { analyzePhotoWithAI } = require('../services/ai-analysis.service');
+const { triggerAnalysisForUser } = require('./analysis.controller');
 
 // Upload photo
 const uploadPhoto = async (req, res) => {
@@ -94,7 +95,7 @@ const uploadPhoto = async (req, res) => {
         session_id: sessionId, // Store session_id for mapping
         photo_url: publicUrl,
         photo_type: photoType,
-        processing_status: 'queued' // Changed from 'pending' to 'queued'
+        processing_status: 'pending' // Use 'pending' to match database constraint
       })
       .select()
       .single();
@@ -115,7 +116,7 @@ const uploadPhoto = async (req, res) => {
       data: {
         session_id: sessionId,
         photo_id: photoId,
-        processing_status: 'queued',
+        processing_status: 'pending',
         estimated_time: 30
       }
     });
@@ -208,6 +209,52 @@ const processPhotoAsync = async (photoId, userId, imageBuffer) => {
 
     console.log(`[QUEUE] Photo processing completed successfully in ${processingTime}ms`);
 
+    // 🚀 AUTO-TRIGGER: Check if user has complete profile and trigger AI analysis
+    try {
+      console.log(`[AUTO-TRIGGER] Checking if user ${userId} has complete profile...`);
+      
+      // Check if user has completed profile
+      const { data: profile, error: profileError } = await supabase
+        .from('beauty_profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (!profileError && profile) {
+        // Calculate profile completion
+        const requiredFields = ['skin_type', 'skin_tone', 'skin_sensitivity', 'primary_skin_concerns'];
+        const completedFields = requiredFields.filter(field => profile[field] && profile[field] !== null);
+        const isProfileComplete = completedFields.length >= requiredFields.length * 0.8; // 80% completion
+
+        if (isProfileComplete) {
+          console.log(`[AUTO-TRIGGER] Profile is complete (${completedFields.length}/${requiredFields.length} fields). Triggering AI analysis...`);
+          
+          // Check if user already has active recommendations to avoid duplicates
+          const { data: existingRecs, error: recError } = await supabase
+            .from('product_recommendations')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('is_active', true)
+            .limit(1);
+
+          if (!recError && (!existingRecs || existingRecs.length === 0)) {
+            // Trigger AI analysis automatically
+            await triggerAnalysisForUser(userId, analysisRecord.id);
+            console.log(`[AUTO-TRIGGER] AI analysis triggered successfully for user ${userId}`);
+          } else {
+            console.log(`[AUTO-TRIGGER] User ${userId} already has active recommendations, skipping auto-trigger`);
+          }
+        } else {
+          console.log(`[AUTO-TRIGGER] Profile incomplete (${completedFields.length}/${requiredFields.length} fields). Skipping auto-trigger.`);
+        }
+      } else {
+        console.log(`[AUTO-TRIGGER] No profile found for user ${userId}. Skipping auto-trigger.`);
+      }
+    } catch (autoTriggerError) {
+      console.error('[AUTO-TRIGGER] Error during automatic AI analysis trigger:', autoTriggerError);
+      // Don't throw - photo processing was successful, this is just a bonus feature
+    }
+
   } catch (error) {
     console.error('[QUEUE] Photo processing error:', error);
     
@@ -276,7 +323,7 @@ const getPhotoStatus = async (req, res) => {
     let currentStep = 'Waiting in queue';
     
     switch (photo.processing_status) {
-      case 'queued':
+      case 'pending':
         progress = 10;
         currentStep = 'Queued for processing';
         break;

@@ -477,8 +477,101 @@ const getAnalysis = async (req, res) => {
   }
 };
 
+// Helper function to trigger analysis for a user (called internally)
+const triggerAnalysisForUser = async (userId, photoAnalysisId = null) => {
+  try {
+    console.log('🚀 [INTERNAL] Starting analysis for user:', userId);
+
+    // Check if user has completed profile
+    const { data: profile, error: profileError } = await supabase
+      .from('beauty_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      console.error('❌ [INTERNAL] Profile error:', profileError);
+      throw new Error('Please complete your beauty profile first');
+    }
+
+    console.log('✅ [INTERNAL] Profile found:', {
+      skin_type: profile.skin_type,
+      concerns: profile.primary_skin_concerns,
+      allergies: profile.known_allergies
+    });
+
+    // Get photo analysis if provided or find latest
+    let photoAnalysis = null;
+    if (photoAnalysisId) {
+      const { data: specificAnalysis, error: analysisError } = await supabase
+        .from('photo_analyses')
+        .select('*')
+        .eq('id', photoAnalysisId)
+        .eq('user_id', userId)
+        .eq('status', 'completed')
+        .single();
+
+      if (!analysisError && specificAnalysis) {
+        photoAnalysis = specificAnalysis;
+        console.log('✅ [INTERNAL] Specific photo analysis found:', specificAnalysis.id);
+      }
+    }
+
+    if (!photoAnalysis) {
+      // Find latest photo analysis
+      const { data: latestAnalysis, error: analysisError } = await supabase
+        .from('photo_analyses')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!analysisError && latestAnalysis) {
+        photoAnalysis = latestAnalysis;
+        console.log('✅ [INTERNAL] Latest photo analysis found:', latestAnalysis.id);
+      } else {
+        console.log('⚠️ [INTERNAL] No photo analysis found:', analysisError?.message);
+      }
+    }
+
+    // Generate analysis ID
+    const analysisId = uuidv4();
+    console.log('📋 [INTERNAL] Generated analysis ID:', analysisId);
+
+    // Initialize analysis status
+    analysisStatus[analysisId] = {
+      status: 'processing',
+      progress: 0,
+      current_step: 'Initializing analysis',
+      steps_completed: [],
+      steps_pending: [
+        'photo_analysis',
+        'profile_analysis',
+        'saving_analysis',
+        'rule_based_filtering',
+        'ai_product_selection',
+        'routine_optimization'
+      ],
+      started_at: new Date().toISOString(),
+      triggered_by: 'auto_trigger'
+    };
+
+    // Start async analysis
+    performFullAnalysisAsync(analysisId, userId, profile, photoAnalysis);
+
+    console.log('🎉 [INTERNAL] Analysis triggered successfully:', analysisId);
+    return analysisId;
+  } catch (error) {
+    console.error('❌ [INTERNAL] Trigger analysis error:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   triggerAnalysis,
   getAnalysisStatus,
-  getAnalysis
+  getAnalysis,
+  triggerAnalysisForUser
 };

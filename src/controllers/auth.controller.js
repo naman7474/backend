@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const supabase = require('../config/supabase');
 const { v4: uuidv4 } = require('uuid');
+const InvitationService = require('../services/invitation.service');
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -15,7 +16,7 @@ const generateToken = (userId) => {
 // Register new user
 const register = async (req, res) => {
   try {
-    const { email, password, first_name, last_name } = req.body;
+    const { email, password, first_name, last_name, invitation_code } = req.body;
 
     // Check if user already exists
     const { data: existingUser } = await supabase
@@ -40,6 +41,31 @@ const register = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Validate invitation code if provided
+    let invitationData = null;
+    let inviterUserId = null;
+    
+    if (invitation_code) {
+      // Check if code is valid
+      const validationResult = await InvitationService.useInvitation(invitation_code, null);
+      
+      if (!validationResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid request data',
+            details: {
+              invitation_code: validationResult.message
+            }
+          }
+        });
+      }
+      
+      invitationData = validationResult.data;
+      inviterUserId = invitationData.invitation.inviter_user_id;
+    }
+
     // Create user
     const { data: newUser, error: createError } = await supabase
       .from('users')
@@ -50,13 +76,21 @@ const register = async (req, res) => {
         last_name,
         is_verified: false,
         is_active: true,
-        profile_completed: false
+        profile_completed: false,
+        invited_by_user_id: inviterUserId,
+        invitation_code_used: invitation_code,
+        access_tier: invitation_code ? 'INVITED' : 'STANDARD'
       })
-      .select('id, email, first_name, last_name, created_at')
+      .select('id, email, first_name, last_name, created_at, member_id')
       .single();
 
     if (createError) {
       throw createError;
+    }
+
+    // If invitation code was used, mark it as used with the new user ID
+    if (invitation_code && invitationData) {
+      await InvitationService.useInvitation(invitation_code, newUser.id);
     }
 
     // Generate token
@@ -71,7 +105,13 @@ const register = async (req, res) => {
           email: newUser.email,
           first_name: newUser.first_name,
           last_name: newUser.last_name,
-          created_at: newUser.created_at
+          member_id: newUser.member_id,
+          created_at: newUser.created_at,
+          was_invited: !!invitation_code,
+          inviter: invitationData ? {
+            member_id: invitationData.inviter.member_id,
+            name: `${invitationData.inviter.first_name} ${invitationData.inviter.last_name}`
+          } : null
         }
       }
     });
@@ -158,7 +198,8 @@ const login = async (req, res) => {
           id: user.id,
           email: user.email,
           first_name: user.first_name,
-          last_name: user.last_name
+          last_name: user.last_name,
+          member_id: user.member_id
         }
       }
     });

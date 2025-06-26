@@ -78,4 +78,9 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
-module.exports = authMiddleware; 
+// Export the function directly for backward compatibility
+module.exports = authMiddleware;
+
+// Also export as named exports
+module.exports.authenticate = authMiddleware;
+module.exports.authMiddleware = authMiddleware; 

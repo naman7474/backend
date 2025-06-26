@@ -211,7 +211,7 @@ const updateProfile = async (req, res) => {
         undertone: updates.undertone,
         primary_skin_concerns: updates.primary_skin_concerns,
         secondary_skin_concerns: updates.secondary_skin_concerns,
-        skin_sensitivity_level: updates.skin_sensitivity,
+        skin_sensitivity: updates.skin_sensitivity_level, // Map to skin_sensitivity column
         known_allergies: updates.known_allergies
       },
       lifestyle: {
@@ -220,10 +220,10 @@ const updateProfile = async (req, res) => {
         climate_type: updates.climate_type,
         pollution_level: updates.pollution_level,
         sun_exposure_daily: updates.sun_exposure_daily,
-        sleep_hours_avg: updates.sleep_hours,
+        sleep_hours: updates.sleep_hours,
         stress_level: updates.stress_level,
         exercise_frequency: updates.exercise_frequency,
-        water_intake_daily: updates.water_intake
+        water_intake: updates.water_intake
       },
       hair: {
         hair_type: updates.hair_type,
@@ -368,8 +368,8 @@ const getProfileSection = async (req, res) => {
       ],
       lifestyle: [
         'location_city', 'location_country', 'climate_type', 'pollution_level',
-        'sun_exposure_daily', 'sleep_hours_avg', 'stress_level', 'exercise_frequency',
-        'water_intake_daily'
+        'sun_exposure_daily', 'sleep_hours', 'stress_level', 'exercise_frequency',
+        'water_intake'
       ],
       hair: [
         'hair_type', 'hair_texture', 'hair_porosity', 'scalp_condition',

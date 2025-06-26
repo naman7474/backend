@@ -83,7 +83,7 @@ const validateProfileUpdate = (req, res, next) => {
   const allowedFields = {
     skin: [
       'skin_type', 'skin_tone', 'undertone', 'primary_skin_concerns',
-      'secondary_skin_concerns', 'skin_sensitivity', 'known_allergies'
+      'secondary_skin_concerns', 'skin_sensitivity_level', 'known_allergies'
     ],
     lifestyle: [
       'location_city', 'location_country', 'climate_type', 'pollution_level',
